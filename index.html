@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Servo Control - Remote</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .device-id {
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            margin-bottom: 20px;
+        }
+        .status-badge {
+            text-align: center;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .status-badge.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-badge.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status-badge.connecting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .angle-display {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 48px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        .slider-container {
+            margin-bottom: 30px;
+        }
+        .slider {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .slider::-moz-range-thumb {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            border: none;
+        }
+        .range-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+        .preset-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .btn {
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            color: white;
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-preset {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .btn-preset:active:not(:disabled) {
+            transform: scale(0.95);
+        }
+        .btn-center {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            grid-column: span 3;
+        }
+        .info {
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            margin-top: 20px;
+            background: #e7f3ff;
+            color: #004085;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Servo Control</h1>
+        <div class="device-id" id="deviceId">Device: Loading...</div>
+        <div class="status-badge connecting" id="statusBadge">Connecting...</div>
+        
+        <div class="angle-display" id="angleDisplay">0°</div>
+        
+        <div class="slider-container">
+            <input type="range" min="-90" max="90" value="0" class="slider" id="angleSlider" disabled>
+            <div class="range-labels">
+                <span>-90°</span>
+                <span>0°</span>
+                <span>90°</span>
+            </div>
+        </div>
+        
+        <div class="preset-buttons">
+            <button class="btn btn-preset" onclick="setAngle(-90)" disabled id="btn1">-90°</button>
+            <button class="btn btn-preset" onclick="setAngle(-45)" disabled id="btn2">-45°</button>
+            <button class="btn btn-preset" onclick="setAngle(0)" disabled id="btn3">0°</button>
+            <button class="btn btn-preset" onclick="setAngle(45)" disabled id="btn4">45°</button>
+            <button class="btn btn-preset" onclick="setAngle(90)" disabled id="btn5">90°</button>
+            <button class="btn btn-center" onclick="setAngle(0)" disabled id="btn6">Center</button>
+        </div>
+        
+        <div class="info">
+            Control via Internet - No WiFi needed
+        </div>
+    </div>
+
+    <!-- MQTT.js库 -->
+    <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
+    
+    <script>
+        const slider = document.getElementById('angleSlider');
+        const angleDisplay = document.getElementById('angleDisplay');
+        const statusBadge = document.getElementById('statusBadge');
+        const deviceIdDiv = document.getElementById('deviceId');
+        const buttons = document.querySelectorAll('.btn');
+        
+        let mqttClient = null;
+        let deviceId = '';
+        let mqttTopic = '';
+        
+        // 从URL获取设备ID
+        const urlParams = new URLSearchParams(window.location.search);
+        deviceId = urlParams.get('id') || 'servo_demo';
+        deviceIdDiv.textContent = 'Device: ' + deviceId;
+        
+        // MQTT主题
+        mqttTopic = 'smartservo/' + deviceId + '/control';
+        
+        // 连接MQTT服务器
+        function connectMQTT() {
+            const mqttUrl = 'wss://broker.emqx.io:8084/mqtt';
+            
+            console.log('Connecting to MQTT:', mqttUrl);
+            console.log('Topic:', mqttTopic);
+            
+            mqttClient = mqtt.connect(mqttUrl, {
+                clientId: 'web_' + Math.random().toString(16).substr(2, 8),
+                clean: true,
+                connectTimeout: 4000,
+                reconnectPeriod: 1000,
+            });
+            
+            mqttClient.on('connect', function() {
+                console.log('MQTT Connected');
+                statusBadge.textContent = 'Connected';
+                statusBadge.className = 'status-badge connected';
+                
+                // 启用控制
+                slider.disabled = false;
+                buttons.forEach(btn => btn.disabled = false);
+            });
+            
+            mqttClient.on('error', function(err) {
+                console.error('MQTT Error:', err);
+                statusBadge.textContent = 'Connection Error';
+                statusBadge.className = 'status-badge disconnected';
+            });
+            
+            mqttClient.on('offline', function() {
+                console.log('MQTT Offline');
+                statusBadge.textContent = 'Disconnected';
+                statusBadge.className = 'status-badge disconnected';
+                
+                // 禁用控制
+                slider.disabled = true;
+                buttons.forEach(btn => btn.disabled = true);
+            });
+            
+            mqttClient.on('reconnect', function() {
+                console.log('MQTT Reconnecting');
+                statusBadge.textContent = 'Reconnecting...';
+                statusBadge.className = 'status-badge connecting';
+            });
+        }
+        
+        // 发送角度到MQTT
+        function publishAngle(angle) {
+            if (mqttClient && mqttClient.connected) {
+                mqttClient.publish(mqttTopic, String(angle), { qos: 0 }, function(err) {
+                    if (err) {
+                        console.error('Publish error:', err);
+                    } else {
+                        console.log('Published angle:', angle);
+                    }
+                });
+            } else {
+                console.error('MQTT not connected');
+            }
+        }
+        
+        // 滑块实时更新显示
+        slider.addEventListener('input', function() {
+            angleDisplay.textContent = this.value + '°';
+        });
+        
+        // 滑块释放时发送命令
+        slider.addEventListener('change', function() {
+            setAngle(parseInt(this.value));
+        });
+        
+        // 设置角度
+        function setAngle(angle) {
+            console.log('Setting angle to:', angle);
+            
+            angleDisplay.textContent = angle + '°';
+            slider.value = angle;
+            
+            publishAngle(angle);
+        }
+        
+        // 页面加载完成后连接MQTT
+        window.onload = function() {
+            connectMQTT();
+        };
+        
+        console.log('Page loaded successfully');
+    </script>
+</body>
+</html>
