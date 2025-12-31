@@ -203,8 +203,8 @@
         
         // 连接MQTT服务器
         function connectMQTT() {
-            // 使用EMQX中国区服务器，速度更快
-            const mqttUrl = 'wss://broker-cn.emqx.io:8084/mqtt';
+            // 使用你的阿里云ECS服务器，速度极快！
+            const mqttUrl = 'ws://47.103.142.124:9001';
             
             console.log('Connecting to MQTT:', mqttUrl);
             console.log('Topic:', mqttTopic);
