@@ -209,12 +209,17 @@
             console.log('Connecting to MQTT:', mqttUrl);
             console.log('Topic:', mqttTopic);
             
+            // 生成唯一的客户端ID，避免重复连接冲突
+            const clientId = 'web_' + deviceId + '_' + Date.now() + '_' + Math.random().toString(16).substr(2, 8);
+            
             mqttClient = mqtt.connect(mqttUrl, {
-                clientId: 'web_' + Math.random().toString(16).substr(2, 8),
-                clean: true,
+                clientId: clientId,
+                clean: true,  // 清除会话
                 connectTimeout: 4000,
                 reconnectPeriod: 1000,
             });
+            
+            console.log('Client ID:', clientId);
             
             mqttClient.on('connect', function() {
                 console.log('MQTT Connected');
