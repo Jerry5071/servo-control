@@ -179,8 +179,8 @@
         </div>
     </div>
 
-    <!-- MQTT.js库 -->
-    <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
+    <!-- MQTT.js库 - 使用国内CDN加速 -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
     
     <script>
         const slider = document.getElementById('angleSlider');
@@ -203,7 +203,8 @@
         
         // 连接MQTT服务器
         function connectMQTT() {
-            const mqttUrl = 'wss://broker.emqx.io:8084/mqtt';
+            // 使用EMQX中国区服务器，速度更快
+            const mqttUrl = 'wss://broker-cn.emqx.io:8084/mqtt';
             
             console.log('Connecting to MQTT:', mqttUrl);
             console.log('Topic:', mqttTopic);
