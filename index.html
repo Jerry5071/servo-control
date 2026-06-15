@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src wss:;">
     <title>Servo Control - Remote</title>
     <style>
         * {
@@ -179,10 +180,23 @@
         </div>
     </div>
 
-    <!-- MQTT.js库 - 使用国内CDN加速 -->
-    <script src="https://cdn.bootcdn.net/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
+    <!-- MQTT.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js"
+            integrity="sha384-RMKqoX3sVDhA5/PQXeSYWbCkhmNzKD+mZljSl8p7OWJUs3CQbiH8TNWCA5pPf9fQ"
+            crossorigin="anonymous"></script>
     
     <script>
+        // ── Configuration ─────────────────────────────────────────────
+        // Set these via your deployment or replace before hosting.
+        const MQTT_CONFIG = {
+            url:      'wss://YOUR_MQTT_HOST:8084/mqtt',  // use wss:// in production
+            username: '',   // set from server-side env; never commit real credentials
+            password: '',   // set from server-side env; never commit real credentials
+        };
+        const MIN_ANGLE = -90;
+        const MAX_ANGLE =  90;
+        // ────────────────────────────────────────────────────────────────
+
         const slider = document.getElementById('angleSlider');
         const angleDisplay = document.getElementById('angleDisplay');
         const statusBadge = document.getElementById('statusBadge');
@@ -193,108 +207,78 @@
         let deviceId = '';
         let mqttTopic = '';
         
-        // 从URL获取设备ID
         const urlParams = new URLSearchParams(window.location.search);
-        deviceId = urlParams.get('id') || 'servo_demo';
+        const rawId = urlParams.get('id') || 'servo_demo';
+        deviceId = rawId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
         deviceIdDiv.textContent = 'Device: ' + deviceId;
         
-        // MQTT主题
         mqttTopic = 'smartservo/' + deviceId + '/control';
         
-        // 连接MQTT服务器
         function connectMQTT() {
-            // 使用你的阿里云ECS服务器，速度极快！
-            const mqttUrl = 'ws://47.103.142.124:9001';
-            
-            console.log('Connecting to MQTT:', mqttUrl);
-            console.log('Topic:', mqttTopic);
-            
-            // 生成唯一的客户端ID，避免重复连接冲突
             const clientId = 'web_' + deviceId + '_' + Date.now() + '_' + Math.random().toString(16).substr(2, 8);
             
-            mqttClient = mqtt.connect(mqttUrl, {
+            const opts = {
                 clientId: clientId,
-                clean: true,  // 清除会话
+                clean: true,
                 connectTimeout: 4000,
                 reconnectPeriod: 1000,
-            });
+            };
+            if (MQTT_CONFIG.username) {
+                opts.username = MQTT_CONFIG.username;
+                opts.password = MQTT_CONFIG.password;
+            }
             
-            console.log('Client ID:', clientId);
+            mqttClient = mqtt.connect(MQTT_CONFIG.url, opts);
             
             mqttClient.on('connect', function() {
-                console.log('MQTT Connected');
                 statusBadge.textContent = 'Connected';
                 statusBadge.className = 'status-badge connected';
-                
-                // 启用控制
                 slider.disabled = false;
                 buttons.forEach(btn => btn.disabled = false);
             });
             
-            mqttClient.on('error', function(err) {
-                console.error('MQTT Error:', err);
+            mqttClient.on('error', function() {
                 statusBadge.textContent = 'Connection Error';
                 statusBadge.className = 'status-badge disconnected';
             });
             
             mqttClient.on('offline', function() {
-                console.log('MQTT Offline');
                 statusBadge.textContent = 'Disconnected';
                 statusBadge.className = 'status-badge disconnected';
-                
-                // 禁用控制
                 slider.disabled = true;
                 buttons.forEach(btn => btn.disabled = true);
             });
             
             mqttClient.on('reconnect', function() {
-                console.log('MQTT Reconnecting');
                 statusBadge.textContent = 'Reconnecting...';
                 statusBadge.className = 'status-badge connecting';
             });
         }
         
-        // 发送角度到MQTT
         function publishAngle(angle) {
             if (mqttClient && mqttClient.connected) {
-                mqttClient.publish(mqttTopic, String(angle), { qos: 0 }, function(err) {
-                    if (err) {
-                        console.error('Publish error:', err);
-                    } else {
-                        console.log('Published angle:', angle);
-                    }
-                });
-            } else {
-                console.error('MQTT not connected');
+                mqttClient.publish(mqttTopic, String(angle), { qos: 0 });
             }
         }
         
-        // 滑块实时更新显示
         slider.addEventListener('input', function() {
             angleDisplay.textContent = this.value + '°';
         });
         
-        // 滑块释放时发送命令
         slider.addEventListener('change', function() {
-            setAngle(parseInt(this.value));
+            setAngle(parseInt(this.value, 10));
         });
         
-        // 设置角度
         function setAngle(angle) {
-            console.log('Setting angle to:', angle);
-            
+            angle = Math.max(MIN_ANGLE, Math.min(MAX_ANGLE, Number(angle) || 0));
             angleDisplay.textContent = angle + '°';
             slider.value = angle;
-            
             publishAngle(angle);
         }
         
-        // 页面加载完成后连接MQTT
         window.onload = function() {
             connectMQTT();
         };
-        
-        console.log('Page loaded successfully');
     </script>
 </body>
 </html>
