@@ -180,7 +180,10 @@
     </div>
 
     <!-- MQTT.js库 - 使用国内CDN加速 -->
-    <script src="https://cdn.bootcdn.net/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/mqtt/5.3.5/mqtt.min.js"
+            onerror="document.getElementById('statusBadge').textContent='Failed to load MQTT library';
+                     document.getElementById('statusBadge').className='status-badge disconnected';
+                     console.error('Failed to load MQTT.js from CDN');"></script>
     
     <script>
         const slider = document.getElementById('angleSlider');
@@ -192,6 +195,22 @@
         let mqttClient = null;
         let deviceId = '';
         let mqttTopic = '';
+        let lastConfirmedAngle = 0;
+
+        function disableControls() {
+            slider.disabled = true;
+            buttons.forEach(function(btn) { btn.disabled = true; });
+        }
+
+        function enableControls() {
+            slider.disabled = false;
+            buttons.forEach(function(btn) { btn.disabled = false; });
+        }
+
+        function showError(msg) {
+            statusBadge.textContent = msg;
+            statusBadge.className = 'status-badge disconnected';
+        }
         
         // 从URL获取设备ID
         const urlParams = new URLSearchParams(window.location.search);
@@ -203,21 +222,31 @@
         
         // 连接MQTT服务器
         function connectMQTT() {
-            // 使用你的阿里云ECS服务器，速度极快！
-            const mqttUrl = 'ws://47.103.142.124:9001';
+            if (typeof mqtt === 'undefined') {
+                showError('MQTT library not available');
+                console.error('mqtt global is undefined — CDN script may have failed to load');
+                return;
+            }
+
+            var mqttUrl = 'ws://47.103.142.124:9001';
             
             console.log('Connecting to MQTT:', mqttUrl);
             console.log('Topic:', mqttTopic);
             
-            // 生成唯一的客户端ID，避免重复连接冲突
-            const clientId = 'web_' + deviceId + '_' + Date.now() + '_' + Math.random().toString(16).substr(2, 8);
-            
-            mqttClient = mqtt.connect(mqttUrl, {
-                clientId: clientId,
-                clean: true,  // 清除会话
-                connectTimeout: 4000,
-                reconnectPeriod: 1000,
-            });
+            var clientId = 'web_' + deviceId + '_' + Date.now() + '_' + Math.random().toString(16).substr(2, 8);
+
+            try {
+                mqttClient = mqtt.connect(mqttUrl, {
+                    clientId: clientId,
+                    clean: true,
+                    connectTimeout: 4000,
+                    reconnectPeriod: 1000,
+                });
+            } catch (err) {
+                showError('Failed to connect');
+                console.error('mqtt.connect() threw:', err);
+                return;
+            }
             
             console.log('Client ID:', clientId);
             
@@ -225,26 +254,25 @@
                 console.log('MQTT Connected');
                 statusBadge.textContent = 'Connected';
                 statusBadge.className = 'status-badge connected';
-                
-                // 启用控制
-                slider.disabled = false;
-                buttons.forEach(btn => btn.disabled = false);
+                enableControls();
             });
             
             mqttClient.on('error', function(err) {
                 console.error('MQTT Error:', err);
-                statusBadge.textContent = 'Connection Error';
-                statusBadge.className = 'status-badge disconnected';
+                showError('Connection Error');
+                disableControls();
+            });
+            
+            mqttClient.on('close', function() {
+                console.log('MQTT Connection closed');
+                showError('Disconnected');
+                disableControls();
             });
             
             mqttClient.on('offline', function() {
                 console.log('MQTT Offline');
-                statusBadge.textContent = 'Disconnected';
-                statusBadge.className = 'status-badge disconnected';
-                
-                // 禁用控制
-                slider.disabled = true;
-                buttons.forEach(btn => btn.disabled = true);
+                showError('Disconnected');
+                disableControls();
             });
             
             mqttClient.on('reconnect', function() {
@@ -254,19 +282,29 @@
             });
         }
         
-        // 发送角度到MQTT
+        // 发送角度到MQTT, returns true on success
         function publishAngle(angle) {
-            if (mqttClient && mqttClient.connected) {
+            if (!mqttClient || !mqttClient.connected) {
+                showError('Not connected — command not sent');
+                disableControls();
+                return false;
+            }
+            try {
                 mqttClient.publish(mqttTopic, String(angle), { qos: 0 }, function(err) {
                     if (err) {
                         console.error('Publish error:', err);
+                        showError('Failed to send command');
                     } else {
                         console.log('Published angle:', angle);
+                        lastConfirmedAngle = angle;
                     }
                 });
-            } else {
-                console.error('MQTT not connected');
+            } catch (err) {
+                console.error('publish() threw:', err);
+                showError('Failed to send command');
+                return false;
             }
+            return true;
         }
         
         // 滑块实时更新显示
@@ -276,7 +314,12 @@
         
         // 滑块释放时发送命令
         slider.addEventListener('change', function() {
-            setAngle(parseInt(this.value));
+            var angle = parseInt(this.value, 10);
+            if (isNaN(angle)) {
+                console.error('Invalid slider value:', this.value);
+                return;
+            }
+            setAngle(angle);
         });
         
         // 设置角度
@@ -286,9 +329,24 @@
             angleDisplay.textContent = angle + '°';
             slider.value = angle;
             
-            publishAngle(angle);
+            if (!publishAngle(angle)) {
+                angleDisplay.textContent = lastConfirmedAngle + '°';
+                slider.value = lastConfirmedAngle;
+            }
         }
         
+        window.addEventListener('error', function(event) {
+            console.error('Uncaught error:', event.error || event.message);
+            showError('Unexpected error');
+            disableControls();
+        });
+
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('Unhandled rejection:', event.reason);
+            showError('Unexpected error');
+            disableControls();
+        });
+
         // 页面加载完成后连接MQTT
         window.onload = function() {
             connectMQTT();
